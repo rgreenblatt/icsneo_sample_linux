@@ -24,10 +24,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include <stdio.h>
+#include <iostream>
 #include <pthread.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <cstdint>
+#include <unistd.h>
 #include <ics/icsneo40API.h>
 
 static void* hObject = 0;
@@ -36,6 +39,7 @@ static bool bShutDown;
 static pthread_mutexattr_t cs_mutex_attr; 	
 static pthread_mutex_t cs_mutex;  
 
+static long arbIdEnable = 0x0401BF;
 void *ReadThread(void *lParam)
 {
     int NumErrors = 0;
@@ -67,17 +71,21 @@ void *ReadThread(void *lParam)
             icsSpyMessage& msg = Msgs[i];
 
             icsneoGetTimeStampForMsg(hObject, &msg, &time);
-            printf("Time %f Network %d (%s) ArbID = %X - Data Bytes: ", time, msg.NetworkID, 
-                Msgs[i].Protocol == SPY_PROTOCOL_CANFD ? " CAN-FD" : "Classic", msg.ArbIDOrHeader);
             
-            const unsigned char* bytes = msg.ExtraDataPtr && msg.ExtraDataPtrEnabled ?
-                (const unsigned char*)msg.ExtraDataPtr : msg.Data;
+            //if(msg.ArbIDOrHeader == arbIdEnable)
+            //{
+                printf("Time %f Network %d (%s) ArbID = %X - Data Bytes: ", time, msg.NetworkID, 
+                    Msgs[i].Protocol == SPY_PROTOCOL_CANFD ? " CAN-FD" : "Classic", msg.ArbIDOrHeader);
+                
+                const unsigned char* bytes = msg.ExtraDataPtr && msg.ExtraDataPtrEnabled ?
+                    (const unsigned char*)msg.ExtraDataPtr : msg.Data;
 
-            for(int j = 0; j < msg.NumberBytesData; j++)
-                printf("%02X ", bytes[j]);
+                for(int j = 0; j < msg.NumberBytesData; j++)
+                    printf("%02X ", bytes[j]);
 
-            printf("\n");           
-         }  	
+                printf("\n");           
+           //}  
+        }  	
     }	
         
       printf("ReadThread done\n");
@@ -106,11 +114,11 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    if(argc >= 3 && (strcmp(argv[1], "-s") == 0 || strcmp(argv[1], "--serial") == 0))
+    /*if(argc >= 3 && (strcmp(argv[1], "-s") == 0 || strcmp(argv[1], "--serial") == 0))
     {
         serial_to_open_str = argv[2];
         icsneoSerialNumberFromString(&serial_to_open, serial_to_open_str);
-    }
+    }*/
 
     
     pthread_mutexattr_init(&cs_mutex_attr); 	
@@ -160,10 +168,10 @@ int main(int argc, char** argv)
             index_to_open = i;
 
         char serial_str[50];
-        icsneoSerialNumberToString(Nd[i].SerialNumber, serial_str, sizeof(serial_str));
+        //icsneoSerialNumberToString(Nd[i].SerialNumber, serial_str, sizeof(serial_str));
 
         printf("Device %d: ", i + 1);
-        printf("Serial # %s Type = %s\n", serial_str, DeviceType); 
+        printf("Serial # %s Type = %s\n", "000", DeviceType); 
     }
     
     if(serial_to_open == 0)
@@ -187,35 +195,70 @@ int main(int argc, char** argv)
     pthread_t threadid;    
     pthread_create(&threadid,NULL,&ReadThread,NULL); 
 
+    /* Pick your motor controller ID */
+    const uint32_t deviceNumber = 45; //must be  0 - 62
+    const uint32_t CONTROL = 0x040080; 
+    const int output = 133;
+
+    long arbIdPercentOut = CONTROL | deviceNumber | 0x02040000;
+
+    //long arbIdEnable = 0x0401BF;
+
+    ulong frame = 0;
+
     while(!bExit)
     {
-        printf("enter t to transmit\n");
-        printf("enter e to exit\n");
-        chIn = getc(stdin);              
+        //printf("enter t to transmit\n");
+        //printf("enter e to exit\n");
+        //chIn = getc(stdin);              
         
-        switch(chIn)
-        {            
-            case 't':
-            {           
-                icsSpyMessage OutMsg = {0};
-                OutMsg.ArbIDOrHeader = 0x500;
-                OutMsg.Data[0] = Nd[index_to_open].SerialNumber & 0xff;
-                OutMsg.Data[1] = (Nd[index_to_open].SerialNumber >> 8) & 0xff;
-                OutMsg.Data[2] = (Nd[index_to_open].SerialNumber >> 16);
-                OutMsg.Data[3] = (Nd[index_to_open].SerialNumber >> 24);
-                OutMsg.Data[4] = 0xde;
-                OutMsg.Data[5] = 0xad;
-                OutMsg.Data[6] = 0xbe;
-                OutMsg.Data[7] = 0xef;
-                OutMsg.NumberBytesData = 8;
-                OutMsg.NumberBytesHeader = 2;      
-                iRetVal = icsneoTxMessages(hObject, &OutMsg, NETID_HSCAN, 1);
-            }   break;    		
+        //switch('t')
+        //{            
+        //    case 't':
+        //    {           
+                //printf("TRANSMITION IS LIVE\n");
+                icsSpyMessage OutMsgPercentOut = {0};
+                OutMsgPercentOut.StatusBitField = 0x04;
+                OutMsgPercentOut.ArbIDOrHeader = arbIdPercentOut;
+                OutMsgPercentOut.Data[0] = (unsigned char)(output >> 0x10);
+                OutMsgPercentOut.Data[1] = (unsigned char)(output >> 0x08);
+                OutMsgPercentOut.Data[2] = (unsigned char)(output);
+                OutMsgPercentOut.Data[3] = 0;
+                OutMsgPercentOut.Data[4] = 0;
+                OutMsgPercentOut.Data[5] = 0;
+                OutMsgPercentOut.Data[6] = 0;
+                OutMsgPercentOut.Data[7] = 0;
+                
+                
+                OutMsgPercentOut.NumberBytesData = 8;
+                OutMsgPercentOut.NumberBytesHeader = 4;      
+                iRetVal = icsneoTxMessages(hObject, &OutMsgPercentOut, NETID_HSCAN, 1);
+           
+                icsSpyMessage OutMsgEnable = {0};
+                OutMsgEnable.StatusBitField = 0x04;
+                OutMsgEnable.ArbIDOrHeader = arbIdEnable;
+                OutMsgEnable.Data[0] = 1; 
+                OutMsgEnable.Data[1] = 0;
+                OutMsgEnable.Data[2] = 0;
+                OutMsgEnable.Data[3] = 0;
+                OutMsgEnable.Data[4] = 0;
+                OutMsgEnable.Data[5] = 0;
+                OutMsgEnable.Data[6] = 0;
+                OutMsgEnable.Data[7] = 0;
+                
+                
+                OutMsgEnable.NumberBytesData = 8;
+                OutMsgEnable.NumberBytesHeader = 4;      
+                iRetVal = icsneoTxMessages(hObject, &OutMsgEnable, NETID_HSCAN, 1);
+            
+            usleep(10000);
+            // }   break;    		
 
-            case 'e':
-                bExit = true;
-                break;		    		
-        }    
+           // case 'e':
+           //     printf("EXIT\n");
+           //     bExit = true;
+           //     break;		    		
+        //}    
     }
 
     printf("Ending......\n");

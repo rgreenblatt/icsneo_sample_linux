@@ -1,6 +1,6 @@
 CXX=g++
 CC=gcc
-CFLAGS=-g -c -O2
+CFLAGS=-g -c -O2 -std=c++11
 LDFLAGS=
 AR=ar
 
